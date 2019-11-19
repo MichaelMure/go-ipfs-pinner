@@ -13,6 +13,6 @@ require (
 	github.com/ipfs/go-ipld-format v0.0.2
 	github.com/ipfs/go-log v0.0.1
 	github.com/ipfs/go-merkledag v0.2.4
-	github.com/libp2p/go-libp2p-transport v0.0.5 // indirect
-	google.golang.org/appengine v1.4.0 // indirect
 )
+
+replace github.com/ipfs/go-merkledag => github.com/MichaelMure/go-merkledag v0.2.1-0.20191119160700-c20b9a52f504
