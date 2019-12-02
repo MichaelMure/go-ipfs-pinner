@@ -12,7 +12,5 @@ require (
 	github.com/ipfs/go-ipfs-util v0.0.1
 	github.com/ipfs/go-ipld-format v0.0.2
 	github.com/ipfs/go-log v0.0.1
-	github.com/ipfs/go-merkledag v0.2.4
+	github.com/ipfs/go-merkledag v0.3.0
 )
-
-replace github.com/ipfs/go-merkledag => github.com/MichaelMure/go-merkledag v0.2.1-0.20191119160700-c20b9a52f504
