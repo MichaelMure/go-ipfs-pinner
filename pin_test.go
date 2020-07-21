@@ -151,7 +151,7 @@ func TestPinnerBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	np, err := LoadPinner(dstore, dserv, dserv)
+	np, err := LoadPinner(ctx, dstore, dserv, dserv)
 	if err != nil {
 		t.Fatal(err)
 	}

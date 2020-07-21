@@ -436,10 +436,10 @@ func cidSetWithValues(cids []cid.Cid) *cid.Set {
 }
 
 // LoadPinner loads a pinner and its keysets from the given datastore
-func LoadPinner(d ds.Datastore, dserv, internal ipld.DAGService) (Pinner, error) {
+func LoadPinner(ctx context.Context, d ds.Datastore, dserv, internal ipld.DAGService) (Pinner, error) {
 	p := new(pinner)
 
-	rootKey, err := d.Get(pinDatastoreKey)
+	rootKey, err := d.Get(ctx, pinDatastoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("cannot load pin state: %v", err)
 	}
@@ -598,10 +598,10 @@ func (p *pinner) Flush(ctx context.Context) error {
 		}
 	}
 
-	if err := p.dstore.Put(pinDatastoreKey, k.Bytes()); err != nil {
+	if err := p.dstore.Put(ctx, pinDatastoreKey, k.Bytes()); err != nil {
 		return fmt.Errorf("cannot store pin state: %v", err)
 	}
-	if err := p.dstore.Sync(pinDatastoreKey); err != nil {
+	if err := p.dstore.Sync(ctx, pinDatastoreKey); err != nil {
 		return fmt.Errorf("cannot sync pin state: %v", err)
 	}
 	p.internalPin = internalset

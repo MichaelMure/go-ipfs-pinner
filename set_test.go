@@ -16,9 +16,9 @@ import (
 
 func ignoreCids(_ cid.Cid) {}
 
-func objCount(d ds.Datastore) int {
+func objCount(ctx context.Context, d ds.Datastore) int {
 	q := dsq.Query{KeysOnly: true}
-	res, err := d.Query(q)
+	res, err := d.Query(ctx, q)
 	if err != nil {
 		panic(err)
 	}
@@ -36,6 +36,7 @@ func objCount(d ds.Datastore) int {
 }
 
 func TestSet(t *testing.T) {
+	ctx := context.Background()
 	dst := ds.NewMapDatastore()
 	bstore := blockstore.NewBlockstore(dst)
 	ds := dag.NewDAGService(bserv.New(bstore, offline.Exchange(bstore)))
@@ -58,14 +59,14 @@ func TestSet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	objs1 := objCount(dst)
+	objs1 := objCount(ctx, dst)
 
 	out, err := storeSet(context.Background(), ds, inputs, ignoreCids)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	objs2 := objCount(dst)
+	objs2 := objCount(ctx, dst)
 	if objs2-objs1 > 2 {
 		t.Fatal("set sharding does not appear to be deterministic")
 	}
