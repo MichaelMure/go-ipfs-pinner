@@ -3,7 +3,6 @@ module github.com/ipfs/go-ipfs-pinner
 go 1.13
 
 require (
-	github.com/gogo/protobuf v1.3.1
 	github.com/ipfs/go-blockservice v0.1.4
 	github.com/ipfs/go-cid v0.0.7
 	github.com/ipfs/go-datastore v0.4.5
