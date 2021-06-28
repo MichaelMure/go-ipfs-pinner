@@ -847,6 +847,10 @@ func makeNodes(count int, dserv ipld.DAGService) []ipld.Node {
 }
 
 func pinNodes(nodes []ipld.Node, p ipfspin.Pinner, recursive bool) {
+	pinNodesSyncEvery(nodes, p, recursive, false)
+}
+
+func pinNodesSyncEvery(nodes []ipld.Node, p ipfspin.Pinner, recursive bool, syncEvery bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var err error
@@ -855,6 +859,12 @@ func pinNodes(nodes []ipld.Node, p ipfspin.Pinner, recursive bool) {
 		err = p.Pin(ctx, nodes[i], recursive)
 		if err != nil {
 			panic(err)
+		}
+		if syncEvery {
+			err = p.Flush(ctx)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 	err = p.Flush(ctx)
