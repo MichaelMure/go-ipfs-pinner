@@ -281,15 +281,14 @@ func TestPinnerBasic(t *testing.T) {
 	assertPinned(t, p, bk, "could not find recursively pinned node")
 
 	// Remove the pin but not the index to simulate corruption
-	dsp := p.(*pinner)
-	ids, err := dsp.cidDIndex.Search(ctx, ak.KeyString())
+	ids, err := p.cidDIndex.Search(ctx, ak.KeyString())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ids) == 0 {
 		t.Fatal("did not find pin for cid", ak.String())
 	}
-	pp, err := dsp.loadPin(ctx, ids[0])
+	pp, err := p.loadPin(ctx, ids[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +298,7 @@ func TestPinnerBasic(t *testing.T) {
 	if pp.Cid != ak {
 		t.Error("loaded pin has wrong cid")
 	}
-	err = dsp.dstore.Delete(pp.dsKey())
+	err = p.dstore.Delete(pp.dsKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,12 +330,10 @@ func TestAddLoadPin(t *testing.T) {
 
 	dserv := mdag.NewDAGService(bserv)
 
-	ipfsPin, err := New(ctx, dstore, dserv)
+	p, err := New(ctx, dstore, dserv)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	p := ipfsPin.(*pinner)
 
 	a, ak := randNode()
 	dserv.Add(ctx, a)
@@ -384,7 +381,7 @@ func TestRemovePinWithMode(t *testing.T) {
 
 	p.Pin(ctx, a, false)
 
-	ok, err := p.(*pinner).removePinsForCid(ctx, ak, ipfspin.Recursive)
+	ok, err := p.removePinsForCid(ctx, ak, ipfspin.Recursive)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,6 +639,18 @@ func TestLoadDirty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	prev := p.SetAutosync(false)
+	if !prev {
+		t.Fatal("expected previous autosync to be true")
+	}
+	prev = p.SetAutosync(false)
+	if prev {
+		t.Fatal("expected previous autosync to be false")
+	}
+	prev = p.SetAutosync(true)
+	if prev {
+		t.Fatal("expected previous autosync to be false")
+	}
 
 	a, ak := randNode()
 	err = dserv.Add(ctx, a)
@@ -660,9 +669,12 @@ func TestLoadDirty(t *testing.T) {
 	cidBKey := bk.KeyString()
 
 	// Corrupt index
-	cidRIndex := p.(*pinner).cidRIndex
+	cidRIndex := p.cidRIndex
 	cidRIndex.DeleteKey(ctx, cidAKey)
 	cidRIndex.Add(ctx, cidBKey, "not-a-pin-id")
+
+	// Force dirty, since Pin syncs automatically
+	p.setDirty(ctx)
 
 	// Verify dirty
 	data, err := dstore.Get(dirtyKey)
@@ -681,7 +693,8 @@ func TestLoadDirty(t *testing.T) {
 		t.Fatal("index should be deleted")
 	}
 
-	// Create new pinner on same datastore that was never flushed.
+	// Create new pinner on same datastore that was never flushed.  This should
+	// detect the dirty flag and repair the indexes.
 	p, err = New(ctx, dstore, dserv)
 	if err != nil {
 		t.Fatal(err)
@@ -697,7 +710,7 @@ func TestLoadDirty(t *testing.T) {
 	}
 
 	// Verify index rebuilt
-	cidRIndex = p.(*pinner).cidRIndex
+	cidRIndex = p.cidRIndex
 	has, err = cidRIndex.HasAny(ctx, cidAKey)
 	if err != nil {
 		t.Fatal(err)
@@ -706,12 +719,12 @@ func TestLoadDirty(t *testing.T) {
 		t.Fatal("index should have been rebuilt")
 	}
 
-	has, err = cidRIndex.HasAny(ctx, cidBKey)
+	has, err = p.removePinsForCid(ctx, bk, ipfspin.Any)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if has {
-		t.Fatal("index should have been removed by rebuild")
+	if !has {
+		t.Fatal("expected Unpin to return true since index removed")
 	}
 }
 
@@ -937,6 +950,33 @@ func BenchmarkLoadRebuild(b *testing.B) {
 			}
 		}
 	})
+}
+
+func BenchmarkRebuild(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dstore, dserv := makeStore()
+
+	for pins := 4096; pins <= 65536; pins += 4096 {
+		pinner, err := New(ctx, dstore, dserv)
+		if err != nil {
+			panic(err.Error())
+		}
+		nodes := makeNodes(4096, dserv)
+		pinNodes(nodes, pinner, true)
+
+		b.Run(fmt.Sprintf("Rebuild %d", pins), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				dstore.Put(dirtyKey, []byte{1})
+
+				_, err = New(ctx, dstore, dserv)
+				if err != nil {
+					panic(err.Error())
+				}
+			}
+		})
+	}
 }
 
 // BenchmarkNthPins shows the time it takes to create/save 1 pin when a number
