@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	cid "github.com/ipfs/go-cid"
 	ds "github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-datastore/query"
 	dssync "github.com/ipfs/go-datastore/sync"
 	lds "github.com/ipfs/go-ds-leveldb"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
@@ -916,7 +918,7 @@ func makeStore() (ds.Datastore, ipld.DAGService) {
 // BenchmarkLoadRebuild loads a pinner that has some number of saved pins, and
 // compares the load time when rebuilding indexes to loading without rebuilding
 // indexes.
-func BenchmarkLoadRebuild(b *testing.B) {
+func BenchmarkLoad(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -950,33 +952,6 @@ func BenchmarkLoadRebuild(b *testing.B) {
 			}
 		}
 	})
-}
-
-func BenchmarkRebuild(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	dstore, dserv := makeStore()
-
-	for pins := 4096; pins <= 65536; pins += 4096 {
-		pinner, err := New(ctx, dstore, dserv)
-		if err != nil {
-			panic(err.Error())
-		}
-		nodes := makeNodes(4096, dserv)
-		pinNodes(nodes, pinner, true)
-
-		b.Run(fmt.Sprintf("Rebuild %d", pins), func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				dstore.Put(dirtyKey, []byte{1})
-
-				_, err = New(ctx, dstore, dserv)
-				if err != nil {
-					panic(err.Error())
-				}
-			}
-		})
-	}
 }
 
 // BenchmarkNthPins shows the time it takes to create/save 1 pin when a number
@@ -1136,4 +1111,226 @@ func benchmarkPinAll(b *testing.B, count int, pinner ipfspin.Pinner, dserv ipld.
 		unpinNodes(nodes, pinner)
 		b.StartTimer()
 	}
+}
+
+func BenchmarkRebuild(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dstore, dserv := makeStore()
+	pinIncr := 32768
+
+	for pins := pinIncr; pins <= pinIncr*5; pins += pinIncr {
+		pinner, err := New(ctx, dstore, dserv)
+		if err != nil {
+			panic(err.Error())
+		}
+		nodes := makeNodes(pinIncr, dserv)
+		pinNodes(nodes, pinner, true)
+
+		b.Run(fmt.Sprintf("Rebuild %d", pins), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				dstore.Put(dirtyKey, []byte{1})
+
+				_, err = New(ctx, dstore, dserv)
+				if err != nil {
+					panic(err.Error())
+				}
+			}
+		})
+	}
+}
+
+func TestCidIndex(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dstore, dserv := makeStore()
+	pinner, err := New(ctx, dstore, dserv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := makeNodes(1, dserv)
+	node := nodes[0]
+
+	c := node.Cid()
+	cidKey := c.KeyString()
+
+	// Pin the cid
+	pid, err := pinner.addPin(ctx, c, ipfspin.Recursive, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("Added pin:", pid)
+	t.Log("CID index:", c.String(), "-->", pid)
+
+	// Check that the index exists
+	ok, err := pinner.cidRIndex.HasAny(ctx, cidKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("R-index has no value for", cidKey)
+	}
+
+	// Check that searching for the cid returns a value
+	values, err := pinner.cidRIndex.Search(ctx, cidKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 {
+		t.Fatal("expect index to return one value")
+	}
+	if values[0] != pid {
+		t.Fatal("indexer should have has value", cidKey, "-->", pid)
+	}
+
+	// Check that index has specific value
+	ok, err = pinner.cidRIndex.HasValue(ctx, cidKey, pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("indexer should have has value", cidKey, "-->", pid)
+	}
+
+	// Iterate values of index
+	var seen bool
+	err = pinner.cidRIndex.ForEach(ctx, "", func(key, value string) bool {
+		if seen {
+			t.Fatal("expected one key-value pair")
+		}
+		if key != cidKey {
+			t.Fatal("unexpected key:", key)
+		}
+		if value != pid {
+			t.Fatal("unexpected value:", value)
+		}
+		seen = true
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Load all pins from the datastore.
+	q := query.Query{
+		Prefix: pinKeyPath,
+	}
+	results, err := pinner.dstore.Query(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer results.Close()
+
+	// Iterate all pins and check if the corresponding recursive or direct
+	// index is missing.  If the index is missing then create the index.
+	seen = false
+	for r := range results.Next() {
+		if seen {
+			t.Fatal("has more than one pin")
+		}
+		if r.Error != nil {
+			t.Fatal(fmt.Errorf("cannot read index: %v", r.Error))
+		}
+		ent := r.Entry
+		pp, err := decodePin(path.Base(ent.Key), ent.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("Found pin:", pp.Id)
+		if pp.Id != pid {
+			t.Fatal("ID of loaded pin is not the same known to indexer")
+		}
+		seen = true
+	}
+}
+
+func TestRebuild(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dstore, dserv := makeStore()
+	pinner, err := New(ctx, dstore, dserv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := makeNodes(3, dserv)
+	pinNodes(nodes, pinner, true)
+
+	c1 := nodes[0].Cid()
+	cid1Key := c1.KeyString()
+	c2 := nodes[1].Cid()
+	cid2Key := c2.KeyString()
+	c3 := nodes[2].Cid()
+	cid3Key := c3.KeyString()
+
+	// Get pin IDs
+	values, err := pinner.cidRIndex.Search(ctx, cid1Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid1 := values[0]
+	values, err = pinner.cidRIndex.Search(ctx, cid2Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid2 := values[0]
+	values, err = pinner.cidRIndex.Search(ctx, cid3Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid3 := values[0]
+
+	// Corrupt index by deleting cid index 2 to simulate an incomplete add or delete
+	pinner.cidRIndex.DeleteKey(ctx, cid2Key)
+
+	// Corrupt index by deleting pin to simulate corruption
+	var pp *pin
+	pp, err = pinner.loadPin(ctx, pid3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pinner.dstore.Delete(pp.dsKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pinner.setDirty(ctx)
+
+	// Rebuild indexes
+	pinner, err = New(ctx, dstore, dserv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that indexes have same values as before
+	err = verifyIndexValue(ctx, pinner, cid1Key, pid1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = verifyIndexValue(ctx, pinner, cid2Key, pid2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = verifyIndexValue(ctx, pinner, cid3Key, pid3)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func verifyIndexValue(ctx context.Context, pinner *pinner, cidKey, expectedPid string) error {
+	values, err := pinner.cidRIndex.Search(ctx, cidKey)
+	if err != nil {
+		return err
+	}
+	if len(values) != 1 {
+		return errors.New("expected 1 value")
+	}
+	if expectedPid != values[0] {
+		return errors.New("index has wrong value")
+	}
+	return nil
 }

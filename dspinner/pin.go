@@ -117,7 +117,7 @@ func (p *pin) dsKey() ds.Key {
 
 func newPin(c cid.Cid, mode ipfspinner.Mode, name string) *pin {
 	return &pin{
-		Id:   ds.RandomKey().String(),
+		Id:   path.Base(ds.RandomKey().String()),
 		Cid:  c,
 		Name: name,
 		Mode: mode,
@@ -664,93 +664,6 @@ func (p *pinner) loadPin(ctx context.Context, pid string) (*pin, error) {
 	return decodePin(pid, pinData)
 }
 
-// rebuildIndexes uses the stored pins to rebuild secondary indexes.  This
-// resolves any discrepancy between secondary indexes and pins that could
-// result from a program termination between saving the two.
-func (p *pinner) rebuildIndexes(ctx context.Context) error {
-	checkIncomplete := func(pp *pin, indexer dsindex.Indexer) (bool, error) {
-		var repaired bool
-		// Check that the indexer indexes this pin
-		indexKey := pp.Cid.KeyString()
-		ok, err := indexer.HasValue(ctx, indexKey, pp.Id)
-		if err != nil {
-			return false, err
-		}
-		if !ok {
-			// There was no index found for this pin.  This was wither an
-			// incomplete add or and incomplete delete of a pin.  Either way,
-			// restore the index to complete the add or to undo the incomplete
-			// delete.
-			if err = indexer.Add(ctx, indexKey, pp.Id); err != nil {
-				return false, err
-			}
-			repaired = true
-		}
-		// Check for missing name index
-		if pp.Name != "" {
-			ok, err = p.nameIndex.HasValue(ctx, pp.Name, pp.Id)
-			if err != nil {
-				return false, err
-			}
-			if !ok {
-				if err = p.nameIndex.Add(ctx, pp.Name, pp.Id); err != nil {
-					return false, err
-				}
-			}
-			repaired = true
-		}
-		return repaired, nil
-	}
-
-	// Load all pins from the datastore.
-	q := query.Query{
-		Prefix: pinKeyPath,
-	}
-	results, err := p.dstore.Query(q)
-	if err != nil {
-		return err
-	}
-	defer results.Close()
-
-	var repairedCount int
-
-	// Iterate all pins and check if the corresponding recursive or direct
-	// index is missing.  If the index is missing then create the index.
-	for r := range results.Next() {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if r.Error != nil {
-			return fmt.Errorf("cannot read index: %v", r.Error)
-		}
-		ent := r.Entry
-		pp, err := decodePin(path.Base(ent.Key), ent.Value)
-		if err != nil {
-			return err
-		}
-
-		var repaired bool
-		if pp.Mode == ipfspinner.Recursive {
-			repaired, err = checkIncomplete(pp, p.cidRIndex)
-			if err != nil {
-				return err
-			}
-		} else if pp.Mode == ipfspinner.Direct {
-			repaired, err = checkIncomplete(pp, p.cidDIndex)
-			if err != nil {
-				return err
-			}
-		}
-
-		if repaired {
-			repairedCount++
-		}
-	}
-
-	log.Infof("repaired invalid indexes for %d pins", repairedCount)
-	return p.flushPins(ctx, true)
-}
-
 // DirectKeys returns a slice containing the directly pinned keys
 func (p *pinner) DirectKeys(ctx context.Context) ([]cid.Cid, error) {
 	p.lock.RLock()
@@ -1006,4 +919,87 @@ func (p *pinner) setClean(ctx context.Context) {
 		return
 	}
 	p.clean = p.dirty // set clean
+}
+
+// rebuildIndexes uses the stored pins to rebuild secondary indexes.  This
+// resolves any discrepancy between secondary indexes and pins that could
+// result from a program termination between saving the two.
+func (p *pinner) rebuildIndexes(ctx context.Context) error {
+	// Load all pins from the datastore.
+	q := query.Query{
+		Prefix: pinKeyPath,
+	}
+	results, err := p.dstore.Query(q)
+	if err != nil {
+		return err
+	}
+	defer results.Close()
+
+	var checkedCount, repairedCount int
+
+	// Iterate all pins and check if the corresponding recursive or direct
+	// index is missing.  If the index is missing then create the index.
+	for r := range results.Next() {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if r.Error != nil {
+			return fmt.Errorf("cannot read index: %v", r.Error)
+		}
+		ent := r.Entry
+		pp, err := decodePin(path.Base(ent.Key), ent.Value)
+		if err != nil {
+			return err
+		}
+
+		var indexer dsindex.Indexer
+		if pp.Mode == ipfspinner.Recursive {
+			indexer = p.cidRIndex
+		} else if pp.Mode == ipfspinner.Direct {
+			indexer = p.cidDIndex
+		} else {
+			log.Error("unrecognized pin mode:", pp.Mode)
+			continue
+		}
+
+		// Check that the indexer indexes this pin
+		indexKey := pp.Cid.KeyString()
+		ok, err := indexer.HasValue(ctx, indexKey, pp.Id)
+		if err != nil {
+			return err
+		}
+
+		var repaired bool
+		if !ok {
+			log.Errorf("missing index for cid: %s", pp.Cid.String())
+			// There was no index found for this pin.  This was wither an
+			// incomplete add or and incomplete delete of a pin.  Either way,
+			// restore the index to complete the add or to undo the incomplete
+			// delete.
+			if err = indexer.Add(ctx, indexKey, pp.Id); err != nil {
+				return err
+			}
+			repaired = true
+		}
+		// Check for missing name index
+		if pp.Name != "" {
+			ok, err = p.nameIndex.HasValue(ctx, pp.Name, pp.Id)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				if err = p.nameIndex.Add(ctx, pp.Name, pp.Id); err != nil {
+					return err
+				}
+			}
+			repaired = true
+		}
+		if repaired {
+			repairedCount++
+		}
+		checkedCount++
+	}
+
+	log.Infof("checked %d pins for invalid indexes, repaired %d pins", checkedCount, repairedCount)
+	return p.flushPins(ctx, true)
 }
