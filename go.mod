@@ -1,6 +1,6 @@
 module github.com/ipfs/go-ipfs-pinner
 
-go 1.17
+go 1.18
 
 require (
 	github.com/ipfs/go-blockservice v0.2.1
