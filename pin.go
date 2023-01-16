@@ -111,12 +111,12 @@ type Pinner interface {
 	// PinWithMode is for manually editing the pin structure. Use with
 	// care! If used improperly, garbage collection may not be
 	// successful.
-	PinWithMode(cid.Cid, Mode)
+	PinWithMode(context.Context, cid.Cid, Mode)
 
 	// RemovePinWithMode is for manually editing the pin structure.
 	// Use with care! If used improperly, garbage collection may not
 	// be successful.
-	RemovePinWithMode(cid.Cid, Mode)
+	RemovePinWithMode(context.Context, cid.Cid, Mode)
 
 	// Flush writes the pin state to the backing datastore
 	Flush(ctx context.Context) error

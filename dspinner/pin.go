@@ -558,8 +558,7 @@ func (p *pinner) CheckIfPinned(ctx context.Context, cids ...cid.Cid) ([]ipfspinn
 // RemovePinWithMode is for manually editing the pin structure.
 // Use with care! If used improperly, garbage collection may not
 // be successful.
-func (p *pinner) RemovePinWithMode(c cid.Cid, mode ipfspinner.Mode) {
-	ctx := context.TODO()
+func (p *pinner) RemovePinWithMode(ctx context.Context, c cid.Cid, mode ipfspinner.Mode) {
 	// Check cache to see if CID is pinned
 	switch mode {
 	case ipfspinner.Direct, ipfspinner.Recursive:
@@ -826,9 +825,7 @@ func (p *pinner) Flush(ctx context.Context) error {
 
 // PinWithMode allows the user to have fine grained control over pin
 // counts
-func (p *pinner) PinWithMode(c cid.Cid, mode ipfspinner.Mode) {
-	ctx := context.TODO()
-
+func (p *pinner) PinWithMode(ctx context.Context, c cid.Cid, mode ipfspinner.Mode) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 

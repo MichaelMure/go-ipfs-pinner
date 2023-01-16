@@ -409,7 +409,7 @@ func TestRemovePinWithMode(t *testing.T) {
 		t.Error("pin should not have been removed")
 	}
 
-	p.RemovePinWithMode(ak, ipfspin.Direct)
+	p.RemovePinWithMode(ctx, ak, ipfspin.Direct)
 
 	assertUnpinned(t, p, ak, "pin was not removed")
 }
@@ -523,7 +523,7 @@ func TestFlush(t *testing.T) {
 	}
 	_, k := randNode()
 
-	p.PinWithMode(k, ipfspin.Recursive)
+	p.PinWithMode(ctx, k, ipfspin.Recursive)
 	if err = p.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
