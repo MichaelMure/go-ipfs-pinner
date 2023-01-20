@@ -199,10 +199,17 @@ func TestPinnerBasic(t *testing.T) {
 	dk := d.Cid()
 	assertPinned(t, p, dk, "pinned node not found.")
 
-	cids, err := p.RecursiveKeys(ctx)
-	if err != nil {
-		t.Fatal(err)
+	allCids := func(c <-chan ipfspin.StreamedCid) (cids []cid.Cid) {
+		for streamedCid := range c {
+			if streamedCid.Err != nil {
+				t.Fatal(streamedCid.Err)
+			}
+			cids = append(cids, streamedCid.Cid)
+		}
+		return cids
 	}
+
+	cids := allCids(p.RecursiveKeys(ctx))
 	if len(cids) != 2 {
 		t.Error("expected 2 recursive pins")
 	}
@@ -244,10 +251,7 @@ func TestPinnerBasic(t *testing.T) {
 		}
 	}
 
-	cids, err = p.DirectKeys(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cids = allCids(p.DirectKeys(ctx))
 	if len(cids) != 1 {
 		t.Error("expected 1 direct pin")
 	}
@@ -255,7 +259,7 @@ func TestPinnerBasic(t *testing.T) {
 		t.Error("wrong direct pin")
 	}
 
-	cids, _ = p.InternalPins(ctx)
+	cids = allCids(p.InternalPins(ctx))
 	if len(cids) != 0 {
 		t.Error("shound not have internal keys")
 	}
