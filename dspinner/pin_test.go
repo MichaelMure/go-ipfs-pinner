@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Jorropo/channel"
 	bs "github.com/ipfs/go-blockservice"
 	mdag "github.com/ipfs/go-merkledag"
 
@@ -199,12 +200,16 @@ func TestPinnerBasic(t *testing.T) {
 	dk := d.Cid()
 	assertPinned(t, p, dk, "pinned node not found.")
 
-	allCids := func(c <-chan ipfspin.StreamedCid) (cids []cid.Cid) {
-		for streamedCid := range c {
-			if streamedCid.Err != nil {
-				t.Fatal(streamedCid.Err)
+	allCids := func(ch channel.ReadOnly[cid.Cid]) (cids []cid.Cid) {
+		for {
+			c, err := ch.Read()
+			if err == io.EOF {
+				break
 			}
-			cids = append(cids, streamedCid.Cid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cids = append(cids, c)
 		}
 		return cids
 	}

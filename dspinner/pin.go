@@ -10,6 +10,7 @@ import (
 	"path"
 	"sync"
 
+	"github.com/Jorropo/channel"
 	"github.com/ipfs/go-cid"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
@@ -665,20 +666,20 @@ func (p *pinner) loadPin(ctx context.Context, pid string) (*pin, error) {
 }
 
 // DirectKeys returns a slice containing the directly pinned keys
-func (p *pinner) DirectKeys(ctx context.Context) <-chan ipfspinner.StreamedCid {
+func (p *pinner) DirectKeys(ctx context.Context) channel.ReadOnly[cid.Cid] {
 	return p.streamIndex(ctx, p.cidDIndex)
 }
 
 // RecursiveKeys returns a slice containing the recursively pinned keys
-func (p *pinner) RecursiveKeys(ctx context.Context) <-chan ipfspinner.StreamedCid {
+func (p *pinner) RecursiveKeys(ctx context.Context) channel.ReadOnly[cid.Cid] {
 	return p.streamIndex(ctx, p.cidRIndex)
 }
 
-func (p *pinner) streamIndex(ctx context.Context, index dsindex.Indexer) <-chan ipfspinner.StreamedCid {
-	out := make(chan ipfspinner.StreamedCid)
+func (p *pinner) streamIndex(ctx context.Context, index dsindex.Indexer) channel.ReadOnly[cid.Cid] {
+	out := channel.New[cid.Cid]()
 
 	go func() {
-		defer close(out)
+		defer out.Close()
 
 		p.lock.RLock()
 		defer p.lock.RUnlock()
@@ -688,40 +689,32 @@ func (p *pinner) streamIndex(ctx context.Context, index dsindex.Indexer) <-chan 
 		err := index.ForEach(ctx, "", func(key, value string) bool {
 			c, err := cid.Cast([]byte(key))
 			if err != nil {
-				select {
-				case <-ctx.Done():
-				case out <- ipfspinner.StreamedCid{Err: err}:
-				}
+				out.SetError(err)
 				return false
 			}
 			if !cidSet.Has(c) {
-				select {
-				case <-ctx.Done():
+				err = out.WriteContext(ctx, c)
+				if err != nil {
 					return false
-				case out <- ipfspinner.StreamedCid{Cid: c}:
 				}
 				cidSet.Add(c)
 			}
 			return true
 		})
 		if err != nil {
-			select {
-			case <-ctx.Done():
-			case out <- ipfspinner.StreamedCid{Err: err}:
-			}
-			return
+			out.SetError(err)
 		}
 	}()
 
-	return out
+	return out.ReadOnly()
 }
 
 // InternalPins returns all cids kept pinned for the internal state of the
 // pinner
-func (p *pinner) InternalPins(ctx context.Context) <-chan ipfspinner.StreamedCid {
-	out := make(chan ipfspinner.StreamedCid)
-	close(out)
-	return out
+func (p *pinner) InternalPins(ctx context.Context) channel.ReadOnly[cid.Cid] {
+	c := channel.New[cid.Cid]()
+	c.Close()
+	return c.ReadOnly()
 }
 
 // Update updates a recursive pin from one cid to another.  This is equivalent

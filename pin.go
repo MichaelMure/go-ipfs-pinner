@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Jorropo/channel"
 	cid "github.com/ipfs/go-cid"
 	ipld "github.com/ipfs/go-ipld-format"
 )
@@ -119,21 +120,14 @@ type Pinner interface {
 	Flush(ctx context.Context) error
 
 	// DirectKeys returns all directly pinned cids
-	DirectKeys(ctx context.Context) <-chan StreamedCid
+	DirectKeys(ctx context.Context) channel.ReadOnly[cid.Cid]
 
 	// RecursiveKeys returns all recursively pinned cids
-	RecursiveKeys(ctx context.Context) <-chan StreamedCid
+	RecursiveKeys(ctx context.Context) channel.ReadOnly[cid.Cid]
 
 	// InternalPins returns all cids kept pinned for the internal state of the
 	// pinner
-	InternalPins(ctx context.Context) <-chan StreamedCid
-}
-
-// StreamedCid is a cid.Cid that carries an error, to be sent through a channel.
-type StreamedCid struct {
-	// if not nil, an error happened. Everything else should be ignored.
-	Err error
-	Cid cid.Cid
+	InternalPins(ctx context.Context) channel.ReadOnly[cid.Cid]
 }
 
 // Pinned represents CID which has been pinned with a pinning strategy.

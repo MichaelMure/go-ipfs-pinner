@@ -3,6 +3,7 @@ module github.com/ipfs/go-ipfs-pinner
 go 1.19
 
 require (
+	github.com/Jorropo/channel v0.0.0-20230303124104-2821e25e07ff
 	github.com/ipfs/go-blockservice v0.2.1
 	github.com/ipfs/go-cid v0.0.7
 	github.com/ipfs/go-datastore v0.5.0
