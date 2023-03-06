@@ -52,7 +52,7 @@ func benchAutoSync(b *testing.B, N int, auto bool, dstore ds.Datastore, dserv ip
 	nodes := makeNodes(N, dserv)
 
 	pinner.SetAutosync(auto)
-	pinNodes(nodes, pinner, true)
+	pinNodes(nodes, pinner)
 }
 
 func BenchmarkSyncOnceBadger(b *testing.B) {

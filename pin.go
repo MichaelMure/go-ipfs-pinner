@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	cid "github.com/ipfs/go-cid"
-	ipld "github.com/ipfs/go-ipld-format"
 )
 
 const (
@@ -91,10 +90,10 @@ type Pinner interface {
 	// given pin type, as well as returning the type of pin its pinned with.
 	IsPinnedWithType(ctx context.Context, c cid.Cid, mode Mode) (string, bool, error)
 
-	// Pin the given node, optionally recursively.
-	// Pin will make sure that the given node and its children if recursive is set
-	// are stored locally.
-	Pin(ctx context.Context, node ipld.Node, recursive bool) error
+	// Pin the given cid with the given mode.
+	// Pin does *not* make sure that the corresponding blocks are stored locally, which
+	// means you need to ensure of that prior to that call.
+	Pin(ctx context.Context, cid cid.Cid, mode Mode) error
 
 	// Unpin the given cid. If recursive is true, removes either a recursive or
 	// a direct pin. If recursive is false, only removes a direct pin.
@@ -109,11 +108,6 @@ type Pinner interface {
 	// Check if a set of keys are pinned, more efficient than
 	// calling IsPinned for each key
 	CheckIfPinned(ctx context.Context, cids ...cid.Cid) ([]Pinned, error)
-
-	// PinWithMode is for manually editing the pin structure. Use with
-	// care! If used improperly, garbage collection may not be
-	// successful.
-	PinWithMode(context.Context, cid.Cid, Mode) error
 
 	// Flush writes the pin state to the backing datastore
 	Flush(ctx context.Context) error

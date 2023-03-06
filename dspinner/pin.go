@@ -174,20 +174,19 @@ func (p *pinner) SetAutosync(auto bool) bool {
 }
 
 // Pin the given node, optionally recursive
-func (p *pinner) Pin(ctx context.Context, node ipld.Node, recurse bool) error {
-	err := p.dserv.Add(ctx, node)
-	if err != nil {
-		return err
-	}
-
-	if recurse {
-		return p.doPinRecursive(ctx, node.Cid(), true)
-	} else {
-		return p.doPinDirect(ctx, node.Cid())
+func (p *pinner) Pin(ctx context.Context, c cid.Cid, mode ipfspinner.Mode) error {
+	// TODO: remove his to support multiple pins per CID
+	switch mode {
+	case ipfspinner.Recursive:
+		return p.doPinRecursive(ctx, c)
+	case ipfspinner.Direct:
+		return p.doPinDirect(ctx, c)
+	default:
+		return fmt.Errorf("unrecognized pin mode")
 	}
 }
 
-func (p *pinner) doPinRecursive(ctx context.Context, c cid.Cid, fetch bool) error {
+func (p *pinner) doPinRecursive(ctx context.Context, c cid.Cid) error {
 	cidKey := c.KeyString()
 
 	p.lock.Lock()
@@ -199,36 +198,6 @@ func (p *pinner) doPinRecursive(ctx context.Context, c cid.Cid, fetch bool) erro
 	}
 	if found {
 		return nil
-	}
-
-	dirtyBefore := p.dirty
-
-	if fetch {
-		// temporary unlock to fetch the entire graph
-		p.lock.Unlock()
-		// Fetch graph starting at node identified by cid
-		err = merkledag.FetchGraph(ctx, c, p.dserv)
-		p.lock.Lock()
-		if err != nil {
-			return err
-		}
-	}
-
-	// If autosyncing, sync dag service before making any change to pins
-	err = p.flushDagService(ctx, false)
-	if err != nil {
-		return err
-	}
-
-	// Only look again if something has changed.
-	if p.dirty != dirtyBefore {
-		found, err = p.cidRIndex.HasAny(ctx, cidKey)
-		if err != nil {
-			return err
-		}
-		if found {
-			return nil
-		}
 	}
 
 	// TODO: remove this to support multiple pins per CID
@@ -810,20 +779,6 @@ func (p *pinner) Flush(ctx context.Context) error {
 	}
 
 	return p.flushPins(ctx, true)
-}
-
-// PinWithMode allows the user to have fine grained control over pin
-// counts
-func (p *pinner) PinWithMode(ctx context.Context, c cid.Cid, mode ipfspinner.Mode) error {
-	// TODO: remove his to support multiple pins per CID
-	switch mode {
-	case ipfspinner.Recursive:
-		return p.doPinRecursive(ctx, c, false)
-	case ipfspinner.Direct:
-		return p.doPinDirect(ctx, c)
-	default:
-		return fmt.Errorf("unrecognized pin mode")
-	}
 }
 
 // hasChild recursively looks for a Cid among the children of a root Cid.
